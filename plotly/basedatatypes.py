@@ -4143,6 +4143,10 @@ Invalid property path '{key_path_str}' for layout
         Add a shape or multiple shapes and call _make_axis_spanning_layout_object on
         all the new shapes.
         """
+
+        # NEW (Step 2): translate legacy annotation_* → label (non-destructive; warns if used)
+        kwargs = _coerce_shape_label_from_legacy_annotation_kwargs(kwargs)
+
         if shape_type in ["vline", "vrect"]:
             direction = "vertical"
         elif shape_type in ["hline", "hrect"]:
@@ -4159,7 +4163,7 @@ Invalid property path '{key_path_str}' for layout
         n_shapes_before = len(self.layout["shapes"])
         n_annotations_before = len(self.layout["annotations"])
         
-        if shape_type == "vline":
+        if True:
             # Always use a single labeled shape for vlines.
 
             # Split kwargs into shape vs legacy annotation_* (which we map to label)
@@ -4181,22 +4185,58 @@ Invalid property path '{key_path_str}' for layout
             # Position mapping (legacy → label.textposition for LINES)
             # Legacy tests used "top/bottom/left/right". For vlines:
             #   top -> end, bottom -> start, middle/center -> middle
+            # for hlines: right -> end, left -> start, middle/center -> middle
             pos_hint = legacy_ann.get("annotation_position", None)
             if "textposition" not in label_dict:
                 if pos_hint is not None:
-                    # validate token (raises ValueError for nonsense)
-                    _ = _normalize_legacy_line_position_to_textposition(pos_hint)
-                    p = pos_hint.strip().lower()
-                    if "top" in p:
-                        label_dict["textposition"] = "end"
-                    elif "bottom" in p:
-                        label_dict["textposition"] = "start"
-                    elif p in ("middle", "center", "centre"):
-                        label_dict["textposition"] = "middle"
-                    # if p only contains left/right, keep default "middle"
-                else:
+                    if shape_type == "vline":
+                        # validate token (raises ValueError for nonsense)
+                        _ = _normalize_legacy_line_position_to_textposition(pos_hint)
+                        p = pos_hint.strip().lower()
+                        if "top" in p:
+                            label_dict["textposition"] = "end"
+                        elif "bottom" in p:
+                            label_dict["textposition"] = "start"
+                        elif p in ("middle", "center", "centre"):
+                            label_dict["textposition"] = "middle"
+                        # if p only contains left/right, keep default "middle"
+                    elif shape_type == "hline":
+                        # validate token (raises ValueError for nonsense)
+                        _ = _normalize_legacy_line_position_to_textposition(pos_hint)
+                        p = pos_hint.strip().lower()
+                        if "right" in p:
+                            label_dict["textposition"] = "end"
+                        elif "left" in p:
+                            label_dict["textposition"] = "start"
+                        elif p in ("middle", "center", "centre"):
+                            label_dict["textposition"] = "middle"
+                        # if p only top/bottom, keep default "middle"
+                    elif "rect" in shape_type:
+                        # Remove words "inside" and "outside" from pos_hint
+                        p = pos_hint.strip().lower()
+                        if "inside" in p:
+                            p = p[6:].strip()
+                        if "outside" in p:
+                            p = p[7:].strip()
+                        
+                        # Defaults empty strings to "middle center"
+                        if p == "":
+                            p = "middle center"
+
+                        # Defaults non-specified positions to middle/center
+                        if "top" not in p and "bottom" not in p and "middle" not in p:
+                            p = "middle " + p
+                        if "right" not in p and "left" not in p and "center" not in p:
+                            p = p + " center"
+                        label_dict["textposition"] = p
+                        
+                elif "line" in shape_type:
                     # default for lines is "middle"
                     label_dict.setdefault("textposition", "middle")
+                elif "rect" in shape_type:
+                    # default for rectangles is "middle center"
+                    label_dict.setdefault("textposition", "middle center")
+                
 
             # NOTE: Label does not support bgcolor/bordercolor; keep emitting a warning when present
             if "annotation_bgcolor" in legacy_ann or "annotation_bordercolor" in legacy_ann:
@@ -4401,8 +4441,6 @@ Invalid property path '{key_path_str}' for layout
         annotation=None,
         **kwargs,
     ):
-        # NEW (Step 2): translate legacy annotation_* → label (non-destructive; warns if used)
-        kwargs = _coerce_shape_label_from_legacy_annotation_kwargs(kwargs)
         self._process_multiple_axis_spanning_shapes(
             dict(type="line", x0=x, x1=x, y0=0, y1=1),
             row,
